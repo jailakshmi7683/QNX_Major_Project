@@ -22,7 +22,7 @@ static const ServiceNode dependency_graph[NUM_SERVICES] = {
     {"wheel_speed",      {"", "", "", ""}},
     {"abs",              {"wheel_speed", "", "", ""}},
     {"traction_control", {"wheel_speed", "", "", ""}},
-    {"dashboard",        {"abs", "traction_control", "", ""}}
+    {"dashboard",        {"abs", "traction_control", "wheel_speed", ""}}
 };
 
 typedef struct {

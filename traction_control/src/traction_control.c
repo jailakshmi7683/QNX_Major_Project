@@ -6,7 +6,7 @@
 #include <sys/dispatch.h>
 #include "common.h"
 
-#define SERVICE_NAME "abs"
+#define SERVICE_NAME "traction_control"
 #define UPSTREAM_NAME "wheel_speed"
 
 static pthread_mutex_t decision_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -28,7 +28,7 @@ static void *worker_thread(void *arg) {
         snprintf(req.sender, MAX_NAME_LEN, "%s", SERVICE_NAME);
 
         if (MsgSend(wheel_coid, &req, sizeof(req), &wheel_reply, sizeof(wheel_reply)) != -1) {
-            double decision = (wheel_reply.value < 55.0) ? 1.0 : 0.0;
+            double decision = (wheel_reply.value > 67.0) ? 1.0 : 0.0; /* 1 = traction control engaged */
 
             pthread_mutex_lock(&decision_lock);
             latest_decision = decision;
@@ -37,7 +37,7 @@ static void *worker_thread(void *arg) {
             char log_msg[100];
 
             snprintf(log_msg, sizeof(log_msg),
-                     "Computed Braking Decision = %.2f for wheel speed = %.2f",
+                     "Computed Traction Decision = %.2f for wheel speed = %.2f",
                      decision, wheel_reply.value);
 
             LOG_EVENT(SERVICE_NAME, "PROCESSED", log_msg);
