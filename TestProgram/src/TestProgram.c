@@ -1,32 +1,42 @@
-//#include <stdio.h>
-//#include <stdlib.h>
-//
-//int main(void) {
-//	puts("Hello World!!!"); /* prints Hello World!!! */
-//	return EXIT_SUCCESS;
-//}
-
 #include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
 #include <sys/neutrino.h>
 #include "common.h"
 
+#define SERVICE_NAME "abs"
+
 int main(void) {
-    int coid = name_open("wheel_speed", 0);
+    int coid = name_open(SERVICE_NAME, 0);
     if (coid == -1) {
         perror("name_open failed");
-        return 1;
+        return EXIT_FAILURE;
     }
 
-    ServiceMsg req, reply;
+    ServiceMsg req = {0};
+    ServiceMsg reply;
     req.type = MSG_TYPE_REQUEST;
-    snprintf(req.sender, MAX_NAME_LEN, "test_client");
+    snprintf(req.sender, MAX_NAME_LEN, "%s", "test_client");
 
-    for (int i = 0; i < 5; i++) {
-        MsgSend(coid, &req, sizeof(req), &reply, sizeof(reply));
-        printf("Got speed: %.2f\n", reply.value);
+    for (int i = 0; i < 10; i++) {
+        if (MsgSend(coid, &req, sizeof(req), &reply, sizeof(reply)) == -1) {
+            perror("MsgSend failed");
+            name_close(coid);
+            return EXIT_FAILURE;
+        }
+
+        if (reply.type != MSG_TYPE_REPLY || (reply.value != 0.0 && reply.value != 1.0)) {
+            fprintf(stderr, "Invalid ABS response (type=%u, value=%.2f)\n",
+                    reply.type, reply.value);
+            name_close(coid);
+            return EXIT_FAILURE;
+        }
+
+        printf("ABS decision: %s (%.0f)\n",
+               reply.value == 1.0 ? "braking active" : "normal", reply.value);
         sleep(1);
     }
 
     name_close(coid);
-    return 0;
+    return EXIT_SUCCESS;
 }

@@ -32,7 +32,6 @@ typedef struct {
     uint64_t timestamp;          // set with ClockCycles() or clock_gettime()
 } ServiceMsg;
 
-
 #define LOG_EVENT(service, event, message)                         \
     do {                                                           \
         struct timespec ts;                                        \

@@ -32,11 +32,27 @@ typedef struct {
     uint64_t timestamp;          // set with ClockCycles() or clock_gettime()
 } ServiceMsg;
 
-#define LOG_EVENT(service, event, detail) \
-    do { \
-        struct timespec ts; \
-        clock_gettime(CLOCK_REALTIME, &ts); \
-        printf("[%ld.%09ld] %s | %s | %s\n", ts.tv_sec, ts.tv_nsec, service, event, detail); \
+
+#define LOG_EVENT(service, event, message)                         \
+    do {                                                           \
+        struct timespec ts;                                        \
+        struct tm time_info;                                       \
+        clock_gettime(CLOCK_REALTIME, &ts);                        \
+        localtime_r(&ts.tv_sec, &time_info);                       \
+                                                                   \
+        printf("[%04d-%02d-%02d %02d:%02d:%02d.%03ld] "            \
+               "%s | %s | %s\n",                                   \
+               time_info.tm_year + 1900,                            \
+               time_info.tm_mon + 1,                               \
+               time_info.tm_mday,                                  \
+               time_info.tm_hour,                                  \
+               time_info.tm_min,                                   \
+               time_info.tm_sec,                                   \
+               ts.tv_nsec / 1000000L,                              \
+               service,                                             \
+               event,                                               \
+               message);                                            \
+        fflush(stdout);                                             \
     } while (0)
 
 #endif // COMMON_H

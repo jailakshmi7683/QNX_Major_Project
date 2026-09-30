@@ -1,0 +1,104 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <pthread.h>
+#include <sys/neutrino.h>
+#include <sys/dispatch.h>
+#include "common.h"
+
+#define SERVICE_NAME "abs"
+#define UPSTREAM_NAME "wheel_speed"
+
+static pthread_mutex_t decision_lock = PTHREAD_MUTEX_INITIALIZER;
+static double latest_decision = 0.0;
+
+/* Background thread: continuously pulls wheel_speed and updates the decision,
+   independent of whether anyone is asking us for it right now. */
+static void *worker_thread(void *arg) {
+    (void)arg;
+    int wheel_coid = name_open(UPSTREAM_NAME, 0);
+    if (wheel_coid == -1) {
+        perror("name_open(wheel_speed) failed");
+        exit(EXIT_FAILURE);
+    }
+
+    for (;;) {
+        ServiceMsg req = {0}, wheel_reply;
+        req.type = MSG_TYPE_REQUEST;
+        snprintf(req.sender, MAX_NAME_LEN, "%s", SERVICE_NAME);
+
+        if (MsgSend(wheel_coid, &req, sizeof(req), &wheel_reply, sizeof(wheel_reply)) != -1) {
+            double decision = (wheel_reply.value < 55.0) ? 1.0 : 0.0;
+
+            pthread_mutex_lock(&decision_lock);
+            latest_decision = decision;
+            pthread_mutex_unlock(&decision_lock);
+
+            char log_msg[100];
+
+            snprintf(log_msg, sizeof(log_msg),
+                     "Computed Braking Decision = %.2f for wheel speed = %.2f",
+                     decision, wheel_reply.value);
+
+            LOG_EVENT(SERVICE_NAME, "PROCESSED", log_msg);
+            usleep(1000000); //1sec
+        } else {
+            LOG_EVENT(SERVICE_NAME, "ERROR", "MsgSend to wheel_speed failed, reconnecting");
+
+            /* The old connection is dead — close it and try to open a fresh one */
+            name_close(wheel_coid);
+            usleep(1000000);
+            wheel_coid = name_open(UPSTREAM_NAME, 0);
+
+            if (wheel_coid == -1) {
+                LOG_EVENT(SERVICE_NAME, "ERROR", "wheel_speed still unavailable");
+            } else {
+                LOG_EVENT(SERVICE_NAME, "RECOVERED", "reconnected to wheel_speed");
+            }
+        }
+    }
+
+    return NULL;
+}
+
+int main(void) {
+    name_attach_t *attach = name_attach(NULL, SERVICE_NAME, 0);
+    if (attach == NULL) {
+        perror("name_attach failed");
+        exit(EXIT_FAILURE);
+    }
+
+    pthread_t tid;
+    if (pthread_create(&tid, NULL, worker_thread, NULL) != 0) {
+        perror("pthread_create failed");
+        exit(EXIT_FAILURE);
+    }
+
+    LOG_EVENT(SERVICE_NAME, "STARTED", "worker thread running, serving clients");
+
+    /* Main thread: only handles serving clients, always ready, never blocked on wheel_speed */
+    for (;;) {
+        ServiceMsg client_msg;
+        int rcvid = MsgReceive(attach->chid, &client_msg, sizeof(client_msg), NULL);
+
+        if (rcvid <= 0) continue; /* error or pulse — ignore */
+
+        if (client_msg.type == MSG_TYPE_REQUEST) {
+            ServiceMsg reply;
+            reply.type = MSG_TYPE_REPLY;
+            snprintf(reply.sender, MAX_NAME_LEN, "%s", SERVICE_NAME);
+
+            pthread_mutex_lock(&decision_lock);
+            reply.value = latest_decision;
+            pthread_mutex_unlock(&decision_lock);
+
+            reply.timestamp = (uint64_t)ClockCycles();
+            MsgReply(rcvid, EOK, &reply, sizeof(reply));
+            LOG_EVENT(SERVICE_NAME, "REPLIED", "sent decision to client");
+        } else {
+            MsgError(rcvid, EBADMSG);
+        }
+    }
+
+    return EXIT_SUCCESS;
+}

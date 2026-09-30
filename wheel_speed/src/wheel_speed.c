@@ -50,7 +50,13 @@ int main(void) {
 
             MsgReply(rcvid, EOK, &reply, sizeof(reply));
 
-            LOG_EVENT(SERVICE_NAME, "REPLIED", "sent speed value");
+            char log_msg[100];
+
+            snprintf(log_msg, sizeof(log_msg),
+                     "sent speed value = %.2f",
+                     fake_speed);
+
+            LOG_EVENT(SERVICE_NAME, "REPLIED", log_msg);
         } else {
             /* Unknown message type — reply with an error */
             MsgError(rcvid, EBADMSG);
