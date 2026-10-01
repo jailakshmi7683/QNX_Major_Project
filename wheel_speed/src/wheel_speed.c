@@ -4,9 +4,15 @@
 #include <math.h>
 #include <sys/neutrino.h>
 #include <sys/dispatch.h>
+#include <sys/types.h>
 #include "common.h"
 
+
 #define SERVICE_NAME "wheel_speed"
+
+
+
+
 
 int main(void) {
     name_attach_t *attach;
@@ -21,6 +27,11 @@ int main(void) {
     }
 
     LOG_EVENT(SERVICE_NAME, "STARTED", "waiting for requests");
+    FILE *pidf = fopen("/tmp/" SERVICE_NAME ".pid", "w");
+    if (pidf) {
+        fprintf(pidf, "%d", getpid());
+        fclose(pidf);
+    }
 
     for (;;) {
         /* Block until a client sends a request */

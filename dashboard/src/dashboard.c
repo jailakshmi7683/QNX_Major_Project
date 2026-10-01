@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/neutrino.h>
+#include <sys/types.h>
 #include "common.h"
 
 #define SERVICE_NAME "dashboard"
@@ -40,6 +41,11 @@ int main(void) {
     int wheel_coid = -1;
 
     LOG_EVENT(SERVICE_NAME, "STARTED", "polling wheel_speed, abs and traction_control");
+    FILE *pidf = fopen("/tmp/" SERVICE_NAME ".pid", "w");
+    if (pidf) {
+        fprintf(pidf, "%d", getpid());
+        fclose(pidf);
+    }
 
     for (;;) {
         double abs_value = 0.0, traction_value = 0.0, wheel_value = 0.0;

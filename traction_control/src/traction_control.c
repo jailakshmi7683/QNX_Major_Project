@@ -4,6 +4,7 @@
 #include <pthread.h>
 #include <sys/neutrino.h>
 #include <sys/dispatch.h>
+#include <sys/types.h>
 #include "common.h"
 
 #define SERVICE_NAME "traction_control"
@@ -41,7 +42,7 @@ static void *worker_thread(void *arg) {
                      decision, wheel_reply.value);
 
             LOG_EVENT(SERVICE_NAME, "PROCESSED", log_msg);
-            usleep(2000000); //1sec
+            usleep(3000000); //1sec
         } else {
             LOG_EVENT(SERVICE_NAME, "ERROR", "MsgSend to wheel_speed failed, reconnecting");
 
@@ -75,6 +76,11 @@ int main(void) {
     }
 
     LOG_EVENT(SERVICE_NAME, "STARTED", "worker thread running, serving clients");
+    FILE *pidf = fopen("/tmp/" SERVICE_NAME ".pid", "w");
+    if (pidf) {
+        fprintf(pidf, "%d", getpid());
+        fclose(pidf);
+    }
 
     /* Main thread: only handles serving clients, always ready, never blocked on wheel_speed */
     for (;;) {
