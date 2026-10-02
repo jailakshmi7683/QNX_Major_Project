@@ -47,6 +47,26 @@ int main(void) {
         fclose(pidf);
     }
 
+    /* Set up shared-memory progress counter */
+    char shm_name[64];
+    snprintf(shm_name, sizeof(shm_name), "%s%s", COUNTER_SHM_PREFIX, SERVICE_NAME);
+
+    int shm_fd = shm_open(shm_name, O_CREAT | O_RDWR, 0666);
+    if (shm_fd == -1) {
+        perror("shm_open failed");
+        exit(EXIT_FAILURE);
+    }
+    ftruncate(shm_fd, sizeof(uint64_t));
+
+    uint64_t *progress_counter = mmap(NULL, sizeof(uint64_t), PROT_READ | PROT_WRITE,
+                                    MAP_SHARED, shm_fd, 0);
+    if (progress_counter == MAP_FAILED) {
+        perror("mmap failed");
+        exit(EXIT_FAILURE);
+    }
+
+    *progress_counter = 0;
+
     for (;;) {
         double abs_value = 0.0, traction_value = 0.0, wheel_value = 0.0;
         char log_msg[128];
@@ -74,6 +94,7 @@ int main(void) {
             LOG_EVENT(SERVICE_NAME, "ERROR", "traction_control unreachable");
         }
 
+        (*progress_counter)++;
         usleep(2000000);
     }
 

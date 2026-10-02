@@ -12,6 +12,7 @@
 
 static pthread_mutex_t decision_lock = PTHREAD_MUTEX_INITIALIZER;
 static double latest_decision = 0.0;
+static uint64_t *progress_counter = NULL;
 
 /* Background thread: continuously pulls wheel_speed and updates the decision,
    independent of whether anyone is asking us for it right now. */
@@ -34,6 +35,8 @@ static void *worker_thread(void *arg) {
             pthread_mutex_lock(&decision_lock);
             latest_decision = decision;
             pthread_mutex_unlock(&decision_lock);
+
+            (*progress_counter)++;
 
             char log_msg[100];
 
@@ -69,6 +72,33 @@ int main(void) {
         exit(EXIT_FAILURE);
     }
 
+    FILE *pidf = fopen("/tmp/" SERVICE_NAME ".pid", "w");
+    if (pidf) {
+        fprintf(pidf, "%d", getpid());
+        fclose(pidf);
+    }
+
+    /* Set up shared-memory progress counter BEFORE starting the worker thread,
+       so it's never NULL by the time worker_thread tries to use it */
+    char shm_name[64];
+    snprintf(shm_name, sizeof(shm_name), "%s%s", COUNTER_SHM_PREFIX, SERVICE_NAME);
+
+    int shm_fd = shm_open(shm_name, O_CREAT | O_RDWR, 0666);
+    if (shm_fd == -1) {
+        perror("shm_open failed");
+        exit(EXIT_FAILURE);
+    }
+    ftruncate(shm_fd, sizeof(uint64_t));
+
+    progress_counter = mmap(NULL, sizeof(uint64_t), PROT_READ | PROT_WRITE,
+                             MAP_SHARED, shm_fd, 0);
+    if (progress_counter == MAP_FAILED) {
+        perror("mmap failed");
+        exit(EXIT_FAILURE);
+    }
+    *progress_counter = 0;
+
+    /* NOW it's safe to start the worker thread */
     pthread_t tid;
     if (pthread_create(&tid, NULL, worker_thread, NULL) != 0) {
         perror("pthread_create failed");
@@ -76,18 +106,13 @@ int main(void) {
     }
 
     LOG_EVENT(SERVICE_NAME, "STARTED", "worker thread running, serving clients");
-    FILE *pidf = fopen("/tmp/" SERVICE_NAME ".pid", "w");
-    if (pidf) {
-        fprintf(pidf, "%d", getpid());
-        fclose(pidf);
-    }
 
     /* Main thread: only handles serving clients, always ready, never blocked on wheel_speed */
     for (;;) {
         ServiceMsg client_msg;
         int rcvid = MsgReceive(attach->chid, &client_msg, sizeof(client_msg), NULL);
 
-        if (rcvid <= 0) continue; /* error or pulse — ignore */
+        if (rcvid <= 0) continue;
 
         if (client_msg.type == MSG_TYPE_REQUEST) {
             ServiceMsg reply;

@@ -4,6 +4,11 @@
 #include <stdint.h>
 #include <time.h>
 #include <stdio.h>
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+
+#define COUNTER_SHM_PREFIX "/progress_"  /* e.g. /progress_wheel_speed */
 
 #define MAX_DEPS 4
 #define MAX_NAME_LEN 32
