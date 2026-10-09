@@ -18,10 +18,13 @@ static uint64_t *progress_counter = NULL;
    independent of whether anyone is asking us for it right now. */
 static void *worker_thread(void *arg) {
     (void)arg;
-    int wheel_coid = name_open(UPSTREAM_NAME, 0);
-    if (wheel_coid == -1) {
-        perror("name_open(wheel_speed) failed");
-        exit(EXIT_FAILURE);
+    int wheel_coid = -1;
+    while (wheel_coid == -1) {
+        wheel_coid = name_open(UPSTREAM_NAME, 0);
+        if (wheel_coid == -1) {
+            LOG_EVENT(SERVICE_NAME, "WAITING", "wheel_speed not available yet");
+            usleep(1000000);
+        }
     }
 
     for (;;) {

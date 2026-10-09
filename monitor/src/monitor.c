@@ -8,13 +8,14 @@
 #include <sys/wait.h>
 #include "common.h"
 
+
 #define POLL_INTERVAL_USEC      1000000  /* poll every 1 s */
 #define STALL_THRESHOLD         5        /* polls; must exceed the slowest service loop (3 s) */
 #define CORRELATION_WINDOW_MS   2000     /* wait for related STUCK faults to surface */
 #define SAFETY_WINDOW_MS        8000     /* max time a restarted/affected service stays unmonitored */
 #define MAX_RESTART_ATTEMPTS    3
 #define INTER_SPAWN_DELAY_USEC  500000   /* let an upstream register its name before the next spawn */
-#define SERVICE_BIN_DIR         "/tmp/"  /* where Momentics deploys the binaries on the target */
+#define SERVICE_BIN_DIR         "/data/ecu/"
 
 typedef enum { FAULT_NONE = 0, FAULT_DEAD, FAULT_STUCK } FaultType;
 
@@ -40,6 +41,11 @@ typedef struct {
 } ServiceState;
 
 static ServiceState svc[NUM_SERVICES]; /* zero-initialised: FAULT_NONE, no grace */
+
+static volatile sig_atomic_t stop_requested = 0;
+static pid_t spawned_pid[NUM_SERVICES];
+
+static void on_signal(int sig) { (void)sig; stop_requested = 1; }
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
@@ -224,6 +230,8 @@ static void restart_service(int i, FaultType ft, uint64_t now) {
     snprintf(msg, sizeof(msg), "%s restarted (new pid=%d)", name, (int)newpid);
     LOG_EVENT("monitor", "RESTARTED", msg);
 
+    spawned_pid[i] = newpid;
+
     s->recovering = 1;
     s->restart_ms = now;
     s->recovery_fault_ms = s->fault_detected_ms;
@@ -338,13 +346,16 @@ static void isolate_and_recover(uint64_t now) {
 /* ------------------------------------------------------------------ */
 
 int main(void) {
+    signal(SIGTERM, on_signal);
+    signal(SIGINT, on_signal);
+
     LOG_EVENT("monitor", "STARTED",
               "process-state + progress-counter detection, root-cause isolation, selective recovery");
 
-    for (;;) {
+    while (!stop_requested) {
         uint64_t now = now_ms();
 
-        while (waitpid(-1, NULL, WNOHANG) > 0) { } /* reap services we spawned that have died */
+        while (waitpid(-1, NULL, WNOHANG) > 0) { }
 
         for (int i = 0; i < NUM_SERVICES; i++) detect_faults(i, now);
         for (int i = 0; i < NUM_SERVICES; i++) check_recovery(i, now);
@@ -353,5 +364,9 @@ int main(void) {
         usleep(POLL_INTERVAL_USEC);
     }
 
+    LOG_EVENT("monitor", "STOPPING", "terminating services this monitor started");
+    for (int i = 0; i < NUM_SERVICES; i++) {
+        if (spawned_pid[i] > 0) kill(spawned_pid[i], SIGTERM);
+    }
     return EXIT_SUCCESS;
 }
